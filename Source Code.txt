@@ -1,0 +1,485 @@
+
+
+/// Melike Oguz - Seymanur Mutlu
+
+//// Alt Sunucu Class ////
+
+package deniyoruz;
+
+
+//import static deniyoruz.Deniyoruz.controlThread;
+import static deniyoruz.Deniyoruz.threadOlustur;
+import java.util.Random;
+import java.util.Vector;
+import java.util.concurrent.BlockingQueue;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+public class AltSunucu extends Thread {
+
+    Random random = new Random();
+    Deniyoruz dene=new Deniyoruz();
+    private final BlockingQueue<Integer> sharedQueue;
+    int threadCounter=0;
+    private int threadNo;
+    float percentCapacity ;
+    boolean flag = true;
+    
+    public AltSunucu (BlockingQueue<Integer> sharedQueue,int threadNo) {
+        this.sharedQueue = sharedQueue;
+        this.threadNo = threadNo;
+    }
+
+    public float getPercentCapacity() {
+        return percentCapacity;
+    }
+    
+    public int getsharedQueueSize(){
+        return sharedQueue.size();
+    }
+    
+    public void setFlag(boolean flag) {
+        this.flag = flag;
+    }
+    
+    @Override
+    public void run() {
+        while(flag){
+            if(flag==false)break;
+            System.out.println("consume'dan onceki hal : " + sharedQueue.size());
+            try {
+                Thread.sleep(200);
+                int num = random.nextInt(50);
+                
+                
+                for(int i = 0; i < num; i++){
+                    sharedQueue.take();
+                }                
+                
+                System.out.println("Consumed: "+ num + ":by thread:"+threadNo);
+                System.out.println("consume'dan sonraki hal : " + sharedQueue.size());
+                
+            } catch (Exception err) {
+               err.printStackTrace();
+            }
+            
+            percentCapacity=((this.sharedQueue.size()*100)/500);   //Alt Sunucularin kapasiteleri degisken olabilir. Simdilik istek kapasitesi 500 alinmistir 
+             
+        }
+    }   
+}
+
+
+
+
+//// Deniyoruz Class ////
+
+
+package deniyoruz;
+
+import java.util.Random;
+import java.util.Vector;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+
+public class Deniyoruz {
+    static BlockingQueue<Integer> sharedQueue = new LinkedBlockingQueue<Integer>();
+    static Vector<AltSunucu> subThreads = new Vector<AltSunucu>();
+    static int threadNum=0;
+    
+    
+    public static void threadNumArttir(){
+        threadNum += 1;
+    }
+    
+    public static void threadOlustur(){
+        System.out.println("THREAD OLUSTURULUYOR " +threadNum);
+        subThreads.add(new AltSunucu(sharedQueue,threadNum));
+        threadNumArttir();
+    }
+    
+
+    public static void sunucuTakip(){
+        int size = subThreads.size();
+
+        System.out.println("\nALT SUNUCU SAYISI : " + size);
+        for(int i = 0; i < size; i++){
+            System.out.println((i+1) +".thread'in yuzdesi :% " + subThreads.get(i).getPercentCapacity());
+        }
+    }
+    
+    
+    
+    
+    public static boolean altSunucuOlusturucu(){
+        int size = subThreads.size();
+        
+        for(int i = 0; i < size+1; i++){
+           System.out.println(i + ". kapasitesi : "+subThreads.get(i).getPercentCapacity());
+           
+           if(subThreads.get(i).getsharedQueueSize() == 0){
+               subThreads.get(i).setFlag(false);
+           }else if(subThreads.get(i).getPercentCapacity() > 70){
+               threadOlustur();
+           }
+        }
+        
+        return false;
+    }
+    
+    public static void main(String[] args) {
+        Random random = new Random();    
+        boolean control;
+        
+        UsersGui gui=new UsersGui(); /* Arayuzun ekrana bastirilmasi icin obje olusturuldu*/
+        gui.setVisible(true);        /* Arayuz ekranda gosteriliyor */
+     
+    
+        /*dokunma, ana sunucu ve ana sunucunun kendi consumer'i  */
+        Thread prodThread1 = new Thread(new Server(sharedQueue,1));
+        Thread cons_ = new Thread(new Runnable(){ //sadece uçurucu
+            @Override
+            public void run() {
+                while(true){
+                    try {
+                        Thread.sleep(200);
+                    } catch (InterruptedException ex) {
+                        Logger.getLogger(Deniyoruz.class.getName()).log(Level.SEVERE, null, ex);
+                    }
+                    int num = random.nextInt(100);
+                    System.out.println("ben anasunucunun consumeri, boyut : " + sharedQueue.size());
+
+                    try {
+                        for(int i = 0; i < num ; i++)
+                            sharedQueue.take();
+                        System.out.println("anasunucu consumeri olarak " + num + " kadar attim gitti, " + sharedQueue.size());
+                    } catch (InterruptedException ex) {
+                        Logger.getLogger(AltSunucu.class.getName()).log(Level.SEVERE, null, ex);
+                    }
+                }
+
+            }
+        });
+        /* dokunma
+            */
+        
+        threadOlustur();
+        threadOlustur();
+
+            Thread controller = new Thread(new Runnable(){
+            @Override
+            public void run() {
+                while(true){
+                    
+                    System.out.println("\nAna Sunucu Kapasite :% "+ (sharedQueue.size()*100)/500); //Ana Sunucu Kapasitesi 500 alinmistir
+                    sunucuTakip();
+                    gui.initializingProgressBar((sharedQueue.size()*100)/500,subThreads);
+                    
+                    //System.out.println("CONTROLLER CALISIYOR");
+
+                    //altSunucuOlusturucu();
+                } 
+            }
+
+        });
+                
+        controller.start();
+        prodThread1.start();
+        subThreads.get(0).start(); //server  calisir
+        subThreads.get(1).start(); //ilk alt sunucu calisir
+        
+        //consThread2.start(); 
+        cons_.start();
+
+        try {
+            controller.join();
+            prodThread1.join();
+            subThreads.get(0).join();
+            subThreads.get(1).join();
+            
+            //consThread2.join(); 
+            cons_.join();
+
+        } catch (InterruptedException ex) {
+                Logger.getLogger(Deniyoruz.class.getName()).log(Level.SEVERE, null, ex);
+        }
+    }
+    
+}
+
+
+
+
+//// MyThread Class ////
+
+package deniyoruz;
+class MyThread implements Runnable {
+
+String name;
+Thread t;
+
+    MyThread (String thread){
+        this.name = thread; 
+        t = new Thread(this, name);
+        System.out.println("New thread: " + t);
+        t.start();
+}
+
+public void run() {
+
+ try {
+
+     for(int i = 5; i > 0; i--) {
+
+     System.out.println(name + ": " + i);
+
+      Thread.sleep(1000);
+
+}
+
+}catch (InterruptedException e) {
+
+     System.out.println(name + "Interrupted");
+
+}
+
+     System.out.println(name + " exiting.");
+
+}
+
+}
+
+//// Server Class ////
+
+
+package deniyoruz;
+
+import java.util.Random;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+public class Server implements Runnable {
+    Random random = new Random();
+
+    private Lock lock = new ReentrantLock();
+    private Condition condition = lock.newCondition();
+    
+    private final BlockingQueue<Integer> sharedQueue;
+    private int threadNo;
+
+    public Server(BlockingQueue<Integer> sharedQueue,int threadNo) {
+        this.threadNo = threadNo;
+        this.sharedQueue = sharedQueue;
+    }
+
+    @Override
+    public void run() {
+        for(;;){
+            try {
+                Thread.sleep(100);
+            } catch (Exception err) {
+                err.printStackTrace();
+            }
+            
+            System.out.println("100ms uyudum");
+            int indexNumber = random.nextInt(100);//kac tane ekleyecegi
+            System.out.println(indexNumber + "+");
+            
+            lock.lock();
+            //if(sharedQueue.size() >= 1000) System.out.println("_)*(&^%$#doldummmm " + sharedQueue.size());
+            for(int i = 0; i < indexNumber ; i++){
+                int number= random.nextInt(100); //indisin icindeki rastgele sayi
+                try {
+                    sharedQueue.put(number);
+                } catch (InterruptedException ex) {
+                    Logger.getLogger(Server.class.getName()).log(Level.SEVERE, null, ex);
+                }
+            }
+            lock.unlock();
+            
+            System.out.println("Server sharedQueue : " +sharedQueue.size());
+
+        }
+    }
+}
+
+
+
+//// UsersGui Class ////
+
+
+package deniyoruz;
+
+import java.awt.Color;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.util.Vector;
+import java.util.concurrent.BlockingQueue;
+import javax.swing.JDialog;
+import javax.swing.JFrame;
+import javax.swing.JOptionPane;
+import javax.swing.Timer;
+
+public class UsersGui extends javax.swing.JFrame {
+
+    
+    public UsersGui() {
+        initComponents();
+    }
+
+           public void initializingProgressBar(float mainServerCapacity, Vector<AltSunucu> subThreads)
+    {
+        
+         Timer timer=new Timer(1000,null);
+        
+        timer.addActionListener(new ActionListener()
+        {
+            
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                 
+            altSunucu1.setVisible(true);
+              altSunucu2.setVisible(true);
+                mainThreadsBar.setVisible(true);
+                
+                
+          /*            for(int i=0;i<subThreads.size();i++)
+        {
+            percentCapacity=(int) subThreads.get(i).percentCapacity;
+            System.out.println("\nGUI'ye Gonderilen 1.Kapasite Miktari : "+percentCapacity); 
+            altSunucu1.setValue((int) percentCapacity);
+          
+        }*/
+            mainThreadsBar.setValue((int)mainServerCapacity);
+            altSunucu1.setValue((int)subThreads.get(0).percentCapacity);
+            altSunucu2.setValue((int)subThreads.get(1).percentCapacity);
+                
+                if( altSunucu1.getValue()>50)
+                {
+                    altSunucu1.setForeground(Color.red);
+                }    
+                   
+                else if(altSunucu2.getValue()>50 )
+                {
+                    altSunucu2.setForeground(Color.red);
+                }
+                
+                else if(mainThreadsBar.getValue()>50)
+                {
+                    mainThreadsBar.setForeground(Color.red);
+                }
+                
+                
+               if(  altSunucu1.getValue()==0)
+                {
+                     System.out.println("1. Alt Sunucunu Kapatildi...");
+                      altSunucu1.setVisible(false);
+                    // timer.stop();
+                }
+               
+               else if(altSunucu2.getValue()==0)
+                {
+                    System.out.println("2. Alt Sunucunu Kapatildi...");
+                    altSunucu2.setVisible(false);
+                }
+                
+             }
+        }
+        
+        );
+        
+        timer.start();
+             
+    }
+    
+    @SuppressWarnings("unchecked")
+    // <editor-fold defaultstate="collapsed" desc="Generated Code">                          
+    private void initComponents() {
+
+        mainThreadsBar = new javax.swing.JProgressBar();
+        jLabel1 = new javax.swing.JLabel();
+        altSunucu1 = new javax.swing.JProgressBar();
+        altSunucu2 = new javax.swing.JProgressBar();
+        jLabel2 = new javax.swing.JLabel();
+        jLabel3 = new javax.swing.JLabel();
+
+        setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
+
+        mainThreadsBar.setForeground(new java.awt.Color(0, 204, 51));
+        mainThreadsBar.setStringPainted(true);
+
+        jLabel1.setForeground(new java.awt.Color(255, 51, 51));
+        jLabel1.setText("Ana Sunucu Kapasitesi");
+
+        altSunucu1.setForeground(new java.awt.Color(0, 204, 51));
+        altSunucu1.setStringPainted(true);
+
+        altSunucu2.setForeground(new java.awt.Color(0, 204, 51));
+        altSunucu2.setStringPainted(true);
+
+        jLabel2.setText("1. Alt Sunucu Kapasitesi");
+
+        jLabel3.setText("2. Alt Sunucu Kapasitesi");
+
+        javax.swing.GroupLayout layout = new javax.swing.GroupLayout(getContentPane());
+        getContentPane().setLayout(layout);
+        layout.setHorizontalGroup(
+            layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+            .addGroup(layout.createSequentialGroup()
+                .addContainerGap(97, Short.MAX_VALUE)
+                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                    .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, layout.createSequentialGroup()
+                        .addComponent(mainThreadsBar, javax.swing.GroupLayout.PREFERRED_SIZE, 351, javax.swing.GroupLayout.PREFERRED_SIZE)
+                        .addGap(75, 75, 75))
+                    .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, layout.createSequentialGroup()
+                        .addComponent(jLabel1)
+                        .addGap(186, 186, 186))))
+            .addGroup(layout.createSequentialGroup()
+                .addGap(16, 16, 16)
+                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
+                    .addComponent(altSunucu1, javax.swing.GroupLayout.DEFAULT_SIZE, 254, Short.MAX_VALUE)
+                    .addComponent(altSunucu2, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+                .addGap(28, 28, 28)
+                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
+                    .addComponent(jLabel2)
+                    .addComponent(jLabel3))
+                .addGap(0, 0, Short.MAX_VALUE))
+        );
+        layout.setVerticalGroup(
+            layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+            .addGroup(layout.createSequentialGroup()
+                .addGap(19, 19, 19)
+                .addComponent(mainThreadsBar, javax.swing.GroupLayout.PREFERRED_SIZE, 40, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                .addComponent(jLabel1)
+                .addGap(35, 35, 35)
+                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
+                    .addComponent(altSunucu1, javax.swing.GroupLayout.PREFERRED_SIZE, 29, javax.swing.GroupLayout.PREFERRED_SIZE)
+                    .addComponent(jLabel2))
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
+                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
+                    .addComponent(altSunucu2, javax.swing.GroupLayout.PREFERRED_SIZE, 30, javax.swing.GroupLayout.PREFERRED_SIZE)
+                    .addComponent(jLabel3))
+                .addContainerGap(204, Short.MAX_VALUE))
+        );
+
+        pack();
+    }// </editor-fold>                        
+
+
+    // Variables declaration - do not modify                     
+    private javax.swing.JProgressBar altSunucu1;
+    private javax.swing.JProgressBar altSunucu2;
+    private javax.swing.JLabel jLabel1;
+    private javax.swing.JLabel jLabel2;
+    private javax.swing.JLabel jLabel3;
+    private javax.swing.JProgressBar mainThreadsBar;
+    // End of variables declaration                   
+}
